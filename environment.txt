@@ -2,7 +2,6 @@
 # $ conda create --name <env> --file <this file>
 # platform: win-64
 # created-by: conda 25.3.1
-@EXPLICIT
 https://conda.anaconda.org/conda-forge/noarch/ca-certificates-2025.7.14-h4c7d964_0.conda
 https://repo.anaconda.com/pkgs/main/noarch/tzdata-2025b-h04d1e81_0.conda
 https://conda.anaconda.org/conda-forge/win-64/ucrt-10.0.22621.0-h57928b3_1.conda
