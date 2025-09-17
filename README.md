@@ -1,12 +1,12 @@
-# SHIPP Integration — EPFToolbox LEAR 48-Hour Price Forecast
+# 48h Forecast of DA Prices - LEAR model integration into SHIPP optimisation framework
 
-This folder integrates **electricity price forecasting** into the SHIPP workflow by using the **LEAR** model from [`epftoolbox`](https://github.com/jeslago/epftoolbox). It includes:
+The folder provided in this repository integrates **electricity price forecasting** into the SHIPP workflow by using the **LEAR** (Lasso Estimated AutoRegressive) model from [`epftoolbox`](https://github.com/jeslago/epftoolbox). It includes:
 
-- a data retriever for ENTSO-E day-ahead prices and system forecasts,
-- a 48-hour rolling forecast pipeline that recalibrates LEAR daily and produces **mean** and **P10/P90** bands,
-- a small test harness / notebook that demonstrates how SHIPP can call the forecaster and visualize outputs.
+- A data retriever for ENTSO-E day-ahead prices and system forecasts,
+- A 48-hour ahead forecasting model with daily recalibration produceing **mean** and **P10/P90** bands,
+- Checks for forecast output compatibility with the wider framework and an interactive visualisation tool.
 
-> **Placement:** this folder—named **`SHIPP Integration`**—was created to be **dropped into the `examples/` directory** of the `epftoolbox` repository. After you download/clone `epftoolbox` (as described in its documentation), copy or move this folder to:
+> **Placement:** the folder named **`SHIPP Integration`** was created to be **dropped into the `examples/` directory** of the `epftoolbox` repository. After downloading or cloning `epftoolbox` (as described in its documentation), copy or move this folder to:
 >
 > ```
 > epftoolbox/
