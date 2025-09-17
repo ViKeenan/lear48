@@ -38,7 +38,7 @@ SHIPP Integration/
   Downloads **day-ahead prices**, **grid load forecast**, and **wind & solar forecast** from ENTSO-E for a padded date range (calibration window + rolling window + 1 day), converts to an **hourly** time series, fills DST gaps, and writes a CSV under `../datasets/` named like `NL_01012018_01042018.csv`. Returns the dataset **stem** to feed into `epftoolbox.data.read_data`.
 
 - **`lear_48hrs.py`**  
-  Orchestrates a **48-hour rolling forecast** with LEAR. For each issue date it:
+  Initiates the **48-hour rolling forecast** with LEAR. For each issue date:
   1) **Recalibrates** LEAR and forecasts **D+1 (hours 0–23)**;  
   2) Uses those D+1 results to forecast **D+2 (hours 24–47)**;  
   3) Builds a long table of forecasts vs. actuals to compute **rolling residual quantiles** per lead-time and derive **P10/P90** bands;  
@@ -46,26 +46,7 @@ SHIPP Integration/
   Returns four lists (per issue): **mean forecast**, **P10**, **P90**, and **actual prices**.
 
 - **`price_forecast.py` / notebook**  
-  A reference notebook that shows how to **replace a dummy AR model** with the LEAR-based pipeline above, how to **read datasets**, run the 48-hour forecast, and **plot** results (including an optional interactive Plotly view via `animated_plot.plot_interactive_forecasts`).
-
----
-
-## Installation & environment
-
-Use the provided `environment.yml` (recommended) or your own Python 3.10+ environment. Then:
-
-```bash
-# from the epftoolbox repo root (one level above examples/)
-pip install -e .
-```
-
-Inside `examples/SHIPP Integration/`, install any optional extras you want (e.g., Plotly for interactive charts) if they’re not already present:
-
-```bash
-pip install plotly
-```
-
----
+  A reference notebook that shows how to replace a dummy AR model with the LEAR-based pipeline above, how to read datasets, run the 48-hour forecast, and plot results (including an optional interactive Plotly view via `animated_plot.plot_interactive_forecasts`).
 
 ## Required credentials (ENTSO-E)
 
@@ -73,32 +54,30 @@ You need an **ENTSO-E API key** to download data. Pass it directly to the functi
 
 ---
 
-## Data flow & file naming
+## On the LEAR model and the 48-hour extension
+Originally proposed by Uniejewski, Ziel, and Weron 2016, the Lasso Estimated AutoRegressive model is a linear ARX specification estimated with LASSO. It is essentially an autoregressive model with exogenous inputs (ARX) where a large number of potential regressors are considered, such as past hourly prices (lags), past daily patterns, and contemporaneous or lagged exogenous variables (load, wind forecasts, etc.). For each delivery hour h, a separate equation is fitted,
 
-1) **ENTSO-E data → `datasets/`**  
-   `get_entsoe_price_data(api_key, country_code, calibration_window, rolling_window_days, begin_test_date, end_test_date)`  
-   - Pulls prices, load, wind/solar; resamples to **hourly**, handles timezone/DST, forward-fills gaps;  
-   - Writes `../datasets/{COUNTRY}_{DDMMYYYY}_{DDMMYYYY}.csv`;  
-   - Returns the stem (e.g., `NL_01012018_01042018`) used by `epftoolbox.data.read_data`.
+$${p_{t,h} = \alpha_h + \sum_{\ell} \phi_{h,\ell} \, p_{t-\ell,h} + \sum_{k} \gamma_{h,k} \, d_{k,t} + \sum_{j} \beta_{h,j} \, x_{t-j} + \varepsilon_{t,h}}$$  
 
-2) **Forecast runs → `experimental_files/`**  
-   - For each issue date, step **1** (D+1) is saved as `{COUNTRY}_{start}_{end}_d1.csv`; the combined **48-hour** result is `{COUNTRY}_{start}_{end}_48hrs.csv`.
+where $p_{t-\ell,h}$ are price lags (intra-day/week), $d_{k,t}$ are calendar/seasonal dummies, and $x_{t-j}$ are exogenous inputs (i.e., load, wind forecasts).
 
----
+The standard use-case for LEAR (as in Lago, De Ridder, and De Schutter 2021) is to forecast the next 24 hours (day-ahead) given data up to the issue time. We extend this to a 48-hour horizon by a two-step sequential approach. The process is as follows:
+- Step 1 (Day+1 forecast): At the given issue time, train the LEAR model on the 2-year window up to present, then predict the next 24 hourly prices (for the next day). This yields a day-ahead price forecast vector for hours 0,23 of tomorrow. In our implementation, we recalibrate the model for each day’s forecast issuance to ensure it adapts to the latest data (this daily retraining strategy follows
+Lago, De Ridder, and De Schutter’s recommendation for robust performance).
+- Step 2 (Day+2 forecast): To forecast hours 24,47 (the second day ahead), we leverage the results of Step 1. We append the day+1 forecasted prices to the historical dataset as if they were “pseudo-observations” for that day. In other words, when predicting the second day, we assume the first day’s forecast is accurate (or at least the best available information for those hours). We then recalibrate or reuse the model to predict an additional 24 hours beyond the first forecast. This yields the prices for day+2 (hours 24,47 ahead).
+  
+Beyond point forecasts, we quantify uncertainty by constructing prediction intervals for each lead time, implementing a quantile estimation approach using the distribution of recent forecast errors (residuals). For each forecast issue (after we have actuals), we compute the error = actual price - forecast price for every hour lead (0 to 47). Over a rolling window (e.g. the past 60 days of forecast issues ), we gather the residuals for each specific lead horizon. Assuming that past errors are indicative of future uncertainty, we estimate the 10th and 90th percentiles of the residual distribution for each lead time. If
+fewer than a minimum number of residual points are available (we require at least 30 data points to ensure a stable quantile estimate), we default to no interval for that lead at that time. We construct prediction bands as
 
-## How the 48-hour LEAR pipeline works
+$${P10_{t+h} = \hat{p}_{t+h} + q_{0.10}(e_{t+h})}$$  
 
-1) **Build training/test windows** from the dataset returned above using `epftoolbox.data.read_data`.  
-2) For each **forecast issue time** (every 24h):
-   - **Recalibrate LEAR** on a rolling calibration window and **forecast the next 24h** (`D+1`). This uses `model.recalibrate_and_forecast_next_day(...)`. The predicted prices for `D+1` are stored and also written to disk.  
-   - **Forecast `D+2` (hours 24–47)** by rebuilding the feature set for the following day and **injecting the D+1 predictions** as the most recent prices. Concatenate D+1 + D+2 for a full **48-hour** vector and save.  
-3) **Probabilistic bands (P10/P90)** are obtained by computing **rolling residual quantiles** per lead-time over a user-defined window (e.g., 60 days) and **shifting** them onto the point forecast (`mean ± quantile residual`).  
-4) The function returns **lists of lists** (length = number of issues) in SHIPP-friendly format:  
-   `forecast_mean, forecast_p10, forecast_p90, actual_price` (each `[ [48 values], ... ]`). The notebook validates these shapes and demonstrates plotting.
+$${P90_{t+h} = \hat{p}_{t+h} + q_{0.90}(e_{t+h})}$$  
+
+In this context, “rolling” does not refer to re-training the point-forecast model day by day, rather, it describes how the uncertainty bands are constructed. For each forecast-issue date, once the corresponding actuals are available, the model takes a standard 60-day look-back of residuals (actual - point forecast) for each lead time (0–47) and derives the empirical 10th and 90th percentiles. These lead-specific quantiles are then added to the current point forecast to produce the P10 and P90 bands; as new days arrive, the 60-day window advances, so the bands adapt to the most recent error behaviour. 
 
 ---
 
-## Example: end-to-end usage (Python)
+## Example
 
 ```python
 from pathlib import Path
@@ -153,15 +132,6 @@ forecast_mean, forecast_p10, forecast_p90, actual_price = get_forecast_issue_lea
 
 - The **dataset creation** step, including timezone handling and CSV naming, matches `entsoe_price_data.py`.  
 - The **forecast call** implements the two-step 48-hour logic and returns SHIPP-compatible arrays with optional P10/P90.
-
----
-
-## Visualizing results
-
-The notebook demonstrates two plotting approaches:
-
-- **Matplotlib** panel of issues vs. observations.  
-- Optional **interactive Plotly** via `animated_plot.plot_interactive_forecasts(forecast_mean, forecast_p10, forecast_p90, actual_price, dt_issue=24, n_for=48)`.
 
 ---
 
