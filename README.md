@@ -65,7 +65,9 @@ The standard use-case for LEAR (as in Lago, De Ridder, and De Schutter 2021) is 
 - Step 1 (Day+1 forecast): At the given issue time, train the LEAR model on the 2-year window up to present, then predict the next 24 hourly prices (for the next day). This yields a day-ahead price forecast vector for hours 0,23 of tomorrow. In our implementation, we recalibrate the model for each day’s forecast issuance to ensure it adapts to the latest data (this daily retraining strategy follows
 Lago, De Ridder, and De Schutter’s recommendation for robust performance).
 - Step 2 (Day+2 forecast): To forecast hours 24,47 (the second day ahead), we leverage the results of Step 1. We append the day+1 forecasted prices to the historical dataset as if they were “pseudo-observations” for that day. In other words, when predicting the second day, we assume the first day’s forecast is accurate (or at least the best available information for those hours). We then recalibrate or reuse the model to predict an additional 24 hours beyond the first forecast. This yields the prices for day+2 (hours 24,47 ahead).
-  
+
+![LEAR 48-hour Model illustration](LEAR_vis_chart.png)
+
 Beyond point forecasts, we quantify uncertainty by constructing prediction intervals for each lead time, implementing a quantile estimation approach using the distribution of recent forecast errors (residuals). For each forecast issue (after we have actuals), we compute the error = actual price - forecast price for every hour lead (0 to 47). Over a rolling window (e.g. the past 60 days of forecast issues ), we gather the residuals for each specific lead horizon. Assuming that past errors are indicative of future uncertainty, we estimate the 10th and 90th percentiles of the residual distribution for each lead time. If
 fewer than a minimum number of residual points are available (we require at least 30 data points to ensure a stable quantile estimate), we default to no interval for that lead at that time. We construct prediction bands as
 
